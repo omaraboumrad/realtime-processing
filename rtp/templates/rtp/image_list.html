@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Real-time Image Processing Demo</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-gray-100 min-h-screen p-8">
+        <div class="max-w-6xl mx-auto space-y-6">
+            <div class="grid grid-cols-2 gap-6">
+                <!-- Left Panel: File Upload and List -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <input type="file"
+                           id="fileInput"
+                           accept="image/*"
+                           onchange="uploadFile()"
+                           class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none p-2 mb-4">
+                    <h3 class="text-xl font-semibold mb-3">Uploaded Images</h3>
+                    <div id="imageList" class="space-y-3 max-h-96 overflow-y-auto">
+                        <!-- Images will be dynamically added here -->
+                    </div>
+                </div>
+                <!-- Right Panel: WebSocket Log -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h2 class="text-2xl font-bold mb-4">Message Log</h2>
+                    <div id="messageLog"
+                         class="bg-gray-50 rounded-lg p-4 h-[500px] overflow-y-auto font-mono text-sm">
+                        <!-- Messages will be logged here -->
+                    </div>
+                </div>
+            </div>
+            <!-- Image Preview Panel -->
+            <div id="imagePreviewPanel"
+                 class="hidden bg-white rounded-lg shadow-lg p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 id="imagePreviewCaption" class="text-xl font-bold">Image Preview</h2>
+                    <button onclick="closePreview()"
+                            class="text-gray-500 hover:text-gray-700 text-2xl font-bold">&times;</button>
+                </div>
+                <div class="flex justify-center">
+                    <img id="previewImage"
+                         src=""
+                         alt="Image preview"
+                         class="max-h-96 rounded-lg">
+                </div>
+            </div>
+        </div>
+        <script>
+        let socket;
+        let pingInterval;
+
+        // Initialize WebSocket connection
+        function initWebSocket() {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws/`;
+
+            socket = new WebSocket(wsUrl);
+
+            socket.onopen = function(e) {
+                logMessage('Connected', 'success');
+
+                // Start ping interval (every 5 seconds)
+                pingInterval = setInterval(() => {
+                    if (socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({ type: 'ping' }));
+                        logMessage('Sent: Ping', 'sent');
+                    }
+                }, 5000);
+
+                // Request initial images list
+                socket.send(JSON.stringify({ type: 'get_images' }));
+            };
+
+            socket.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'pong') {
+                    logMessage('Received: Pong', 'received');
+                } else if (data.type === 'connection') {
+                    logMessage(`Received: ${data.message}`, 'received');
+                } else if (data.type === 'image_update') {
+                    logMessage(`Received: ${data.message}`, 'received');
+                    refreshImageList();
+
+                    // Automatically preview processed image when completed
+                    if (data.processed_image && data.image_id) {
+                        viewImage(data.processed_image, `Processed Image #${data.image_id}`);
+                    }
+                } else if (data.type === 'images_list') {
+                    updateImageList(data.images);
+                }
+            };
+
+            socket.onerror = function(error) {
+                logMessage(`WebSocket Error: ${error}`, 'error');
+            };
+
+            socket.onclose = function(event) {
+                logMessage('WebSocket connection closed', 'error');
+                clearInterval(pingInterval);
+
+                // Attempt to reconnect after 3 seconds
+                setTimeout(initWebSocket, 3000);
+            };
+        }
+
+        // Log message to the right panel
+        function logMessage(message, type = 'info') {
+            const messageLog = document.getElementById('messageLog');
+            const timestamp = new Date().toLocaleTimeString();
+            const colorClass = {
+                'success': 'text-green-600',
+                'error': 'text-red-600',
+                'sent': 'text-blue-600',
+                'received': 'text-purple-600',
+                'info': 'text-gray-700'
+            }[type] || 'text-gray-700';
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `${colorClass} mb-2`;
+            messageDiv.innerHTML = `<span class="text-gray-500">[${timestamp}]</span> ${message}`;
+
+            messageLog.appendChild(messageDiv);
+            messageLog.scrollTop = messageLog.scrollHeight;
+        }
+
+        // Upload file
+        async function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                alert('Please select a file first');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('image', file);
+
+            try {
+                const response = await fetch('/upload/', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    logMessage(`File uploaded: ${file.name}`, 'success');
+                    fileInput.value = '';
+                    refreshImageList();
+
+                    // Automatically preview the uploaded image
+                    if (data.original_image) {
+                        viewImage(data.original_image, `Original Image #${data.id}`);
+                    }
+                } else {
+                    logMessage(`Upload failed: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                logMessage(`Upload error: ${error}`, 'error');
+            }
+        }
+
+        // Process image
+        async function processImage(imageId) {
+            try {
+                const response = await fetch(`/process/${imageId}/`, {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    logMessage(`Processing failed: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                logMessage(`Processing error: ${error}`, 'error');
+            }
+        }
+
+        // Delete image
+        async function deleteImage(imageId) {
+            try {
+                const response = await fetch(`/delete/${imageId}/`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    logMessage(`Image ${imageId} deleted`, 'success');
+                    refreshImageList();
+                } else {
+                    logMessage(`Delete failed: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                logMessage(`Delete error: ${error}`, 'error');
+            }
+        }
+
+        // Open image preview
+        function viewImage(imageUrl, caption) {
+            const panel = document.getElementById('imagePreviewPanel');
+            const previewImage = document.getElementById('previewImage');
+            const previewCaption = document.getElementById('imagePreviewCaption');
+
+            previewImage.src = imageUrl;
+            previewCaption.textContent = caption;
+            panel.classList.remove('hidden');
+        }
+
+        // Close image preview
+        function closePreview() {
+            const panel = document.getElementById('imagePreviewPanel');
+            panel.classList.add('hidden');
+        }
+
+        // Refresh image list
+        async function refreshImageList() {
+            try {
+                const response = await fetch('/images/');
+                const data = await response.json();
+                updateImageList(data.images);
+            } catch (error) {
+                console.error('Error fetching images:', error);
+            }
+        }
+
+        // Update image list display
+        function updateImageList(images) {
+            const imageList = document.getElementById('imageList');
+            imageList.innerHTML = '';
+
+            if (images.length === 0) {
+                imageList.innerHTML = '<p class="text-gray-500">No images uploaded yet</p>';
+                return;
+            }
+
+            images.forEach(image => {
+                const imageDiv = document.createElement('div');
+                imageDiv.className = 'border rounded p-2 bg-gray-50 flex items-center gap-2 text-sm';
+
+                let statusBadge, actionButton = '';
+
+                if (image.status === 'pending') {
+                    statusBadge = '<span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2 py-0.5 rounded">Pending</span>';
+                    actionButton = `<button onclick="processImage(${image.id})" class="bg-green-500 hover:bg-green-600 text-white text-xs font-semibold py-1 px-2 rounded transition">Process</button>`;
+                } else if (image.status === 'processing') {
+                    statusBadge = '<span class="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded">Processing...</span>';
+                    actionButton = `<button disabled class="bg-gray-400 text-white text-xs font-semibold py-1 px-2 rounded cursor-not-allowed opacity-60">Process</button>`;
+                } else if (image.status === 'completed') {
+                    statusBadge = '<span class="bg-green-100 text-green-800 text-xs font-medium px-2 py-0.5 rounded">Completed</span>';
+                }
+
+                // View buttons for images
+                let viewButtons = '';
+                if (image.original_image) {
+                    viewButtons += `<button onclick="viewImage('${image.original_image}', 'Original Image #${image.id}')" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold py-1 px-2 rounded transition" title="View Original">Source</button>`;
+                }
+                if (image.processed_image) {
+                    viewButtons += `<button onclick="viewImage('${image.processed_image}', 'Processed Image #${image.id}')" class="bg-purple-500 hover:bg-purple-600 text-white text-xs font-semibold py-1 px-2 rounded transition" title="View Processed">Result</button>`;
+                }
+
+                const filename = image.filename || 'unknown';
+                const displayName = filename.length > 20 ? filename.substring(0, 20) + '...' : filename;
+
+                imageDiv.innerHTML = `
+                    <span class="font-semibold text-gray-700 shrink-0">#${image.id}</span>
+                    <span class="text-gray-600 text-sm truncate max-w-[150px]" title="${filename}">${displayName}</span>
+                    ${statusBadge}
+                    <div class="flex-1"></div>
+                    ${viewButtons}
+                    ${actionButton}
+                    <button onclick="deleteImage(${image.id})" class="bg-red-500 hover:bg-red-600 text-white text-xs font-semibold py-1 px-2 rounded transition">Del</button>
+                `;
+
+                imageList.appendChild(imageDiv);
+            });
+        }
+
+        // Close preview with Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closePreview();
+            }
+        });
+
+        // Initialize on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            initWebSocket();
+            refreshImageList();
+        });
+        </script>
+    </body>
+</html>
