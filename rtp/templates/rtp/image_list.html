@@ -46,6 +46,21 @@
                 </div>
             </div>
         </div>
+
+        <!-- Templates -->
+        <template id="imageItemTemplate">
+            <div class="border rounded p-2 bg-gray-50 flex items-center gap-2 text-sm">
+                <span class="image-id font-semibold text-gray-700 shrink-0"></span>
+                <span class="image-filename text-gray-600 text-sm truncate max-w-[150px]"></span>
+                <span class="image-status"></span>
+                <div class="flex-1"></div>
+                <button class="btn-source bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold py-1 px-2 rounded transition hidden" title="View Original">Source</button>
+                <button class="btn-result bg-purple-500 hover:bg-purple-600 text-white text-xs font-semibold py-1 px-2 rounded transition hidden" title="View Processed">Result</button>
+                <button class="btn-process bg-green-500 hover:bg-green-600 text-white text-xs font-semibold py-1 px-2 rounded transition hidden">Process</button>
+                <button class="btn-delete bg-red-500 hover:bg-red-600 text-white text-xs font-semibold py-1 px-2 rounded transition">Del</button>
+            </div>
+        </template>
+
         <script>
         let socket;
         let pingInterval;
@@ -238,45 +253,67 @@
                 return;
             }
 
+            const template = document.getElementById('imageItemTemplate');
+
             images.forEach(image => {
-                const imageDiv = document.createElement('div');
-                imageDiv.className = 'border rounded p-2 bg-gray-50 flex items-center gap-2 text-sm';
+                const clone = template.content.cloneNode(true);
+                const item = clone.querySelector('div');
 
-                let statusBadge, actionButton = '';
+                // Set image ID and filename
+                const idSpan = clone.querySelector('.image-id');
+                idSpan.textContent = `#${image.id}`;
 
-                if (image.status === 'pending') {
-                    statusBadge = '<span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2 py-0.5 rounded">Pending</span>';
-                    actionButton = `<button onclick="processImage(${image.id})" class="bg-green-500 hover:bg-green-600 text-white text-xs font-semibold py-1 px-2 rounded transition">Process</button>`;
-                } else if (image.status === 'processing') {
-                    statusBadge = '<span class="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded">Processing...</span>';
-                    actionButton = `<button disabled class="bg-gray-400 text-white text-xs font-semibold py-1 px-2 rounded cursor-not-allowed opacity-60">Process</button>`;
-                } else if (image.status === 'completed') {
-                    statusBadge = '<span class="bg-green-100 text-green-800 text-xs font-medium px-2 py-0.5 rounded">Completed</span>';
-                }
-
-                // View buttons for images
-                let viewButtons = '';
-                if (image.original_image) {
-                    viewButtons += `<button onclick="viewImage('${image.original_image}', 'Original Image #${image.id}')" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold py-1 px-2 rounded transition" title="View Original">Source</button>`;
-                }
-                if (image.processed_image) {
-                    viewButtons += `<button onclick="viewImage('${image.processed_image}', 'Processed Image #${image.id}')" class="bg-purple-500 hover:bg-purple-600 text-white text-xs font-semibold py-1 px-2 rounded transition" title="View Processed">Result</button>`;
-                }
-
+                const filenameSpan = clone.querySelector('.image-filename');
                 const filename = image.filename || 'unknown';
                 const displayName = filename.length > 20 ? filename.substring(0, 20) + '...' : filename;
+                filenameSpan.textContent = displayName;
+                filenameSpan.title = filename;
 
-                imageDiv.innerHTML = `
-                    <span class="font-semibold text-gray-700 shrink-0">#${image.id}</span>
-                    <span class="text-gray-600 text-sm truncate max-w-[150px]" title="${filename}">${displayName}</span>
-                    ${statusBadge}
-                    <div class="flex-1"></div>
-                    ${viewButtons}
-                    ${actionButton}
-                    <button onclick="deleteImage(${image.id})" class="bg-red-500 hover:bg-red-600 text-white text-xs font-semibold py-1 px-2 rounded transition">Del</button>
-                `;
+                // Set status badge
+                const statusSpan = clone.querySelector('.image-status');
+                if (image.status === 'pending') {
+                    statusSpan.className = 'bg-yellow-100 text-yellow-800 text-xs font-medium px-2 py-0.5 rounded';
+                    statusSpan.textContent = 'Pending';
+                } else if (image.status === 'processing') {
+                    statusSpan.className = 'bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded';
+                    statusSpan.textContent = 'Processing...';
+                } else if (image.status === 'completed') {
+                    statusSpan.className = 'bg-green-100 text-green-800 text-xs font-medium px-2 py-0.5 rounded';
+                    statusSpan.textContent = 'Completed';
+                }
 
-                imageList.appendChild(imageDiv);
+                // Configure buttons
+                const sourceBtn = clone.querySelector('.btn-source');
+                const resultBtn = clone.querySelector('.btn-result');
+                const processBtn = clone.querySelector('.btn-process');
+                const deleteBtn = clone.querySelector('.btn-delete');
+
+                // Source button
+                if (image.original_image) {
+                    sourceBtn.classList.remove('hidden');
+                    sourceBtn.onclick = () => viewImage(image.original_image, `Original Image #${image.id}`);
+                }
+
+                // Result button
+                if (image.processed_image) {
+                    resultBtn.classList.remove('hidden');
+                    resultBtn.onclick = () => viewImage(image.processed_image, `Processed Image #${image.id}`);
+                }
+
+                // Process button
+                if (image.status === 'pending') {
+                    processBtn.classList.remove('hidden');
+                    processBtn.onclick = () => processImage(image.id);
+                } else if (image.status === 'processing') {
+                    processBtn.classList.remove('hidden');
+                    processBtn.disabled = true;
+                    processBtn.className = 'bg-gray-400 text-white text-xs font-semibold py-1 px-2 rounded cursor-not-allowed opacity-60';
+                }
+
+                // Delete button
+                deleteBtn.onclick = () => deleteImage(image.id);
+
+                imageList.appendChild(clone);
             });
         }
 

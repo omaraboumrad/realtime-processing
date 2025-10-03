@@ -31,7 +31,7 @@ def process_image(image_id):
         )
 
         # Simulate long-running task, you should remove this.
-        # time.sleep(5)
+        time.sleep(5)
 
         # Open the original image
         original_path = image.original_image.path
