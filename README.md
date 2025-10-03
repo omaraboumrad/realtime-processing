@@ -6,7 +6,11 @@ Prototype with Django 6.0 Alpha 1, Django Tasks and Django Channels.
 
 # How to run
 
-You can run via uv
+**NOTICE!** Since this is Django 6.0 and we're using the database backend in django-tasks, we need to modify the `CheckConstraint(check=..)` to `CheckConstraint(condition=...) in the following file: `django_tasks/backends/database/migrations/0005_alter_dbtaskresult_priority_and_more.py", line 19`
+
+You also need to have `redis` running and accessible on port `6379`
+
+Afterwards you can run via uv
 
 ```
 $ uv sync
@@ -25,6 +29,14 @@ $ source ./venv/bin/activate
 ```
 
 Then just navigate to `http://127.0.0.1:8000` in your browser
+
+You also need to run task workers and since this branch is using `DatabaseBackend` from `django-tasks` you will need to run as many database workers as you want via:
+
+```
+$ python manage.py db_worker
+```
+
+The more workers you add, the more you can process at once.
 
 # How to use
 

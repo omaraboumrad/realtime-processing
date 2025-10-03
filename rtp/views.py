@@ -11,15 +11,14 @@ from .tasks import process_image
 
 home = ListView.as_view(model=Image)
 
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def upload_image(request):
     if "image" not in request.FILES:
         return JsonResponse({"error": "No image provided"}, status=400)
 
-    image = Image.objects.create(
-        original_image=request.FILES["image"]
-    )
+    image = Image.objects.create(original_image=request.FILES["image"])
 
     return JsonResponse(
         {
@@ -27,7 +26,7 @@ def upload_image(request):
             "status": image.status,
             "message": "Image uploaded successfully",
             "original_image": image.original_image.url,
-            "filename": Path(image.original_image.path).name
+            "filename": Path(image.original_image.path).name,
         }
     )
 
@@ -43,7 +42,12 @@ def process_image_view(request, pk):
     process_image.enqueue(pk)
 
     return JsonResponse(
-        {"id": image.id, "status": "processing", "message": "Image processing started"}
+        {
+            "id": image.id,
+            "status": "processing",
+            "message": "Image processing started",
+            "simulated_delay": "3-5s",
+        }
     )
 
 
@@ -72,3 +76,41 @@ def delete_image(request, pk):
     image.delete()
 
     return JsonResponse({"id": pk, "message": "Image deleted successfully"})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def replay_image(request, pk):
+    original_image = get_object_or_404(Image, id=pk)
+
+    # Create a new image record with the same original_image file
+    new_image = Image.objects.create(original_image=original_image.original_image)
+
+    return JsonResponse(
+        {
+            "id": new_image.id,
+            "status": new_image.status,
+            "message": "Image duplicated successfully",
+        }
+    )
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def process_all_images(request):
+    # Get all pending images
+    pending_images = Image.objects.filter(status="pending")
+
+    image_ids = []
+    for image in pending_images:
+        process_image.enqueue(image.id)
+        image_ids.append(image.id)
+
+    return JsonResponse(
+        {
+            "count": len(image_ids),
+            "image_ids": image_ids,
+            "message": f"Started processing {len(image_ids)} image(s)",
+            "simulated_delay": "3-5s",
+        }
+    )

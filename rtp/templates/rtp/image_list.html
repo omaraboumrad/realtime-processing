@@ -14,9 +14,19 @@
                     <input type="file"
                            id="fileInput"
                            accept="image/*"
-                           onchange="uploadFile()"
+                           multiple
+                           onchange="uploadFiles()"
                            class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none p-2 mb-4">
-                    <h3 class="text-xl font-semibold mb-3">Uploaded Images</h3>
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-xl font-semibold">Uploaded Images</h3>
+                        <button onclick="processAll()"
+                                class="bg-green-500 hover:bg-green-600 text-white p-2 rounded transition"
+                                title="Process All">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M4 18l8.5-6L4 6v12zm2-8.14L10.03 12 6 14.14V9.86zM21.5 12L13 6v12l8.5-6zM15 9.86L19.03 12 15 14.14V9.86z"/>
+                            </svg>
+                        </button>
+                    </div>
                     <div id="imageList" class="space-y-3 max-h-96 overflow-y-auto">
                         <!-- Images will be dynamically added here -->
                     </div>
@@ -49,21 +59,36 @@
 
         <!-- Templates -->
         <template id="imageItemTemplate">
-            <div class="border rounded p-2 bg-gray-50 flex items-center gap-2 text-sm">
+            <div class="image-item border rounded p-2 bg-gray-50 flex items-center gap-2 text-sm">
                 <span class="image-id font-semibold text-gray-700 shrink-0"></span>
                 <span class="image-filename text-gray-600 text-sm truncate max-w-[150px]"></span>
                 <span class="image-status"></span>
                 <div class="flex-1"></div>
-                <button class="btn-source bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold py-1 px-2 rounded transition hidden" title="View Original">Source</button>
-                <button class="btn-result bg-purple-500 hover:bg-purple-600 text-white text-xs font-semibold py-1 px-2 rounded transition hidden" title="View Processed">Result</button>
-                <button class="btn-process bg-green-500 hover:bg-green-600 text-white text-xs font-semibold py-1 px-2 rounded transition hidden">Process</button>
-                <button class="btn-delete bg-red-500 hover:bg-red-600 text-white text-xs font-semibold py-1 px-2 rounded transition">Del</button>
+                <button class="btn-source bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold px-2 py-1.5 rounded transition hidden" title="View Original">SRC</button>
+                <button class="btn-result bg-purple-500 hover:bg-purple-600 text-white text-xs font-semibold px-2 py-1.5 rounded transition hidden" title="View Processed">RES</button>
+                <button class="btn-process bg-green-500 hover:bg-green-600 text-white p-1.5 rounded transition hidden" title="Process">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M8 5v14l11-7z"/>
+                    </svg>
+                </button>
+                <button class="btn-delete bg-red-500 hover:bg-red-600 text-white p-1.5 rounded transition" title="Delete">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 6h18M8 6V4h8v2m-9 0v12a2 2 0 002 2h6a2 2 0 002-2V6"/>
+                    </svg>
+                </button>
+                <button class="btn-replay bg-orange-500 hover:bg-orange-600 text-white p-1.5 rounded transition" title="Duplicate">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                        <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                    </svg>
+                </button>
             </div>
         </template>
 
         <script>
         let socket;
         let pingInterval;
+        let queuedImageIds = new Set(); // Track images that user has queued
 
         // Initialize WebSocket connection
         function initWebSocket() {
@@ -140,46 +165,66 @@
             messageLog.scrollTop = messageLog.scrollHeight;
         }
 
-        // Upload file
-        async function uploadFile() {
+        // Upload multiple files
+        async function uploadFiles() {
             const fileInput = document.getElementById('fileInput');
-            const file = fileInput.files[0];
+            const files = fileInput.files;
 
-            if (!file) {
-                alert('Please select a file first');
+            if (files.length === 0) {
+                alert('Please select at least one file');
                 return;
             }
 
-            const formData = new FormData();
-            formData.append('image', file);
+            logMessage(`Uploading ${files.length} file(s)...`, 'info');
 
-            try {
-                const response = await fetch('/upload/', {
-                    method: 'POST',
-                    body: formData
-                });
+            let uploadedCount = 0;
+            let lastUploadedImage = null;
 
-                const data = await response.json();
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const formData = new FormData();
+                formData.append('image', file);
 
-                if (response.ok) {
-                    logMessage(`File uploaded: ${file.name}`, 'success');
-                    fileInput.value = '';
-                    refreshImageList();
+                try {
+                    const response = await fetch('/upload/', {
+                        method: 'POST',
+                        body: formData
+                    });
 
-                    // Automatically preview the uploaded image
-                    if (data.original_image) {
-                        viewImage(data.original_image, `Original Image #${data.id}`);
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        uploadedCount++;
+                        logMessage(`File uploaded: ${file.name}`, 'success');
+                        lastUploadedImage = data;
+                    } else {
+                        logMessage(`Upload failed for ${file.name}: ${data.error}`, 'error');
                     }
-                } else {
-                    logMessage(`Upload failed: ${data.error}`, 'error');
+                } catch (error) {
+                    logMessage(`Upload error for ${file.name}: ${error}`, 'error');
                 }
-            } catch (error) {
-                logMessage(`Upload error: ${error}`, 'error');
             }
+
+            // Clear input and refresh list
+            fileInput.value = '';
+            refreshImageList();
+
+            // Preview the last uploaded image
+            if (lastUploadedImage && lastUploadedImage.original_image) {
+                viewImage(lastUploadedImage.original_image, `Original Image #${lastUploadedImage.id}`);
+            }
+
+            logMessage(`Upload complete: ${uploadedCount}/${files.length} file(s) uploaded successfully`, 'info');
         }
 
         // Process image
-        async function processImage(imageId) {
+        async function processImage(imageId, buttonElement) {
+            // Mark as queued
+            queuedImageIds.add(imageId);
+
+            // Refresh UI to show "Queued" state
+            refreshImageList();
+
             try {
                 const response = await fetch(`/process/${imageId}/`, {
                     method: 'POST'
@@ -187,11 +232,47 @@
 
                 const data = await response.json();
 
-                if (!response.ok) {
+                if (response.ok) {
+                    // Log the simulated delay
+                    if (data.simulated_delay) {
+                        logMessage(`Image #${imageId} queued (simulated delay: ${data.simulated_delay})`, 'info');
+                    }
+                } else {
                     logMessage(`Processing failed: ${data.error}`, 'error');
+                    // Remove from queued on failure
+                    queuedImageIds.delete(imageId);
+                    refreshImageList();
                 }
             } catch (error) {
                 logMessage(`Processing error: ${error}`, 'error');
+                // Remove from queued on error
+                queuedImageIds.delete(imageId);
+                refreshImageList();
+            }
+        }
+
+        // Process all pending images
+        async function processAll() {
+            try {
+                const response = await fetch('/process-all/', {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    const delayInfo = data.simulated_delay ? ` (simulated delay: ${data.simulated_delay} each)` : '';
+                    logMessage(`Processing ${data.count} image(s)${delayInfo}`, 'success');
+                    // Mark all processed IDs as queued
+                    if (data.image_ids) {
+                        data.image_ids.forEach(id => queuedImageIds.add(id));
+                    }
+                    refreshImageList();
+                } else {
+                    logMessage(`Process all failed: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                logMessage(`Process all error: ${error}`, 'error');
             }
         }
 
@@ -206,12 +287,33 @@
 
                 if (response.ok) {
                     logMessage(`Image ${imageId} deleted`, 'success');
+                    queuedImageIds.delete(imageId); // Remove from queued set
                     refreshImageList();
                 } else {
                     logMessage(`Delete failed: ${data.error}`, 'error');
                 }
             } catch (error) {
                 logMessage(`Delete error: ${error}`, 'error');
+            }
+        }
+
+        // Replay image (duplicate)
+        async function replayImage(imageId) {
+            try {
+                const response = await fetch(`/replay/${imageId}/`, {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    logMessage(`Image ${imageId} duplicated as #${data.id}`, 'success');
+                    refreshImageList();
+                } else {
+                    logMessage(`Replay failed: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                logMessage(`Replay error: ${error}`, 'error');
             }
         }
 
@@ -269,22 +371,36 @@
                 filenameSpan.textContent = displayName;
                 filenameSpan.title = filename;
 
-                // Set status badge
+                // Set status badge and background
                 const statusSpan = clone.querySelector('.image-status');
-                if (image.status === 'pending') {
+                const itemDiv = clone.querySelector('.image-item');
+                const isQueued = queuedImageIds.has(image.id);
+
+                if (image.status === 'pending' && !isQueued) {
+                    // Default state: no status badge
+                    statusSpan.remove();
+                } else if (image.status === 'pending' && isQueued) {
+                    // User clicked but not yet processing
                     statusSpan.className = 'bg-yellow-100 text-yellow-800 text-xs font-medium px-2 py-0.5 rounded';
-                    statusSpan.textContent = 'Pending';
+                    statusSpan.textContent = 'Queued';
                 } else if (image.status === 'processing') {
+                    // Remove from queued set if present
+                    queuedImageIds.delete(image.id);
                     statusSpan.className = 'bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded';
                     statusSpan.textContent = 'Processing...';
                 } else if (image.status === 'completed') {
-                    statusSpan.className = 'bg-green-100 text-green-800 text-xs font-medium px-2 py-0.5 rounded';
-                    statusSpan.textContent = 'Completed';
+                    // Remove from queued set if present
+                    queuedImageIds.delete(image.id);
+                    // Remove status badge and change background to green
+                    statusSpan.remove();
+                    itemDiv.classList.remove('bg-gray-50');
+                    itemDiv.classList.add('bg-green-100');
                 }
 
                 // Configure buttons
                 const sourceBtn = clone.querySelector('.btn-source');
                 const resultBtn = clone.querySelector('.btn-result');
+                const replayBtn = clone.querySelector('.btn-replay');
                 const processBtn = clone.querySelector('.btn-process');
                 const deleteBtn = clone.querySelector('.btn-delete');
 
@@ -300,15 +416,27 @@
                     resultBtn.onclick = () => viewImage(image.processed_image, `Processed Image #${image.id}`);
                 }
 
+                // Replay button
+                replayBtn.onclick = () => replayImage(image.id);
+
                 // Process button
-                if (image.status === 'pending') {
+                if (image.status === 'pending' && !isQueued) {
+                    // Default state: show green play button
                     processBtn.classList.remove('hidden');
-                    processBtn.onclick = () => processImage(image.id);
-                } else if (image.status === 'processing') {
+                    processBtn.onclick = (event) => processImage(image.id, event.currentTarget);
+                } else if ((image.status === 'pending' && isQueued) || image.status === 'processing') {
+                    // Queued or processing: show gray disabled hourglass
                     processBtn.classList.remove('hidden');
                     processBtn.disabled = true;
-                    processBtn.className = 'bg-gray-400 text-white text-xs font-semibold py-1 px-2 rounded cursor-not-allowed opacity-60';
+                    processBtn.classList.remove('bg-green-500', 'hover:bg-green-600');
+                    processBtn.classList.add('bg-gray-400', 'cursor-not-allowed', 'opacity-60');
+                    processBtn.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M6 2h12v6l-6 6 6 6v6H6v-6l6-6-6-6V2z"/>
+                        </svg>
+                    `;
                 }
+                // If completed, button stays hidden (default hidden state)
 
                 // Delete button
                 deleteBtn.onclick = () => deleteImage(image.id);

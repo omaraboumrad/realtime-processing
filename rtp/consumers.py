@@ -9,9 +9,7 @@ class ImageConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_add("image_updates", self.channel_name)
         await self.accept()
         await self.send(
-            text_data=json.dumps(
-                {"type": "connection", "message": "Hello!"}
-            )
+            text_data=json.dumps({"type": "connection", "message": "Hello!"})
         )
 
     async def disconnect(self, close_code):
